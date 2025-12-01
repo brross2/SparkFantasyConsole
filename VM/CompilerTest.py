@@ -99,12 +99,12 @@ if __name__ == "__main__":
     print("-" * 50)
 
     # Ejecutamos paso a paso para ver el trace
-    while vm.ip < len(vm.code) and not vm.is_halted:
+    while vm.ip < len(vm.code) and not vm.halted:
         # Hack visual: Imprimimos antes de ejecutar para ver qué va a pasar
         current_op = vm.code[vm.ip]
         op_name = OP_NAMES.get(current_op, "?")
 
-        vm.run_frame()  # Ejecuta una instrucción
+        vm.step()  # Ejecuta una instrucción
         cycles += 1
 
         # Mostramos estado

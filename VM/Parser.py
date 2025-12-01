@@ -127,7 +127,7 @@ class Parser:
 
         self.expect("KEYWORD", "end")
         # Asegúrate de que tu dataclass 'If' acepte 3 argumentos: cond, body, else_body
-        return If(cond, body, else_body if else_body else None)
+        return If(cond, body, else_body if len(else_body) > 0 else None)
 
     def parse_while(self):
         self.expect("KEYWORD", "while")

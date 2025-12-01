@@ -33,14 +33,17 @@ class Compiler:
         raise NotImplementedError(f"No se sabe compilar {type(node).__name__}")
 
     # --- Visitantes de Nodos ---
+    def compile_block(self, nodes):
+        for node in nodes:
+            self.compile(node)
+            if isinstance(node, (Call, BinaryOp, UnaryOp, Number, String, Var)):
+                self.emit(POP)
+            else:
+                pass
 
     def compile_Program(self, node):
-        for stmt in node.body:
-            self.compile(stmt)
-            # Si es una expresión suelta (no asignación), limpiamos el stack
-            if isinstance(stmt, (BinaryOp, Number, String, Call)):
-                self.emit(POP)
-        self.emit(HALT)  # Fin del programa
+        self.compile_block(node.body)
+        self.emit(HALT)
 
     def compile_Number(self, node):
         idx = self.add_const(node.value)
@@ -80,62 +83,31 @@ class Compiler:
     # --- Control de Flujo (La parte interesante) ---
 
     def compile_If(self, node):
-        # Estructura:
-        #    CONDICION
-        #    JMP_IF_FALSE -> salto_a_else
-        #    CUERPO_TRUE
-        #    JMP -> salto_a_fin  <-- Solo necesario si hay else
-        # salto_a_else:
-        #    CUERPO_ELSE
-        # salto_a_fin:
-
         self.compile(node.cond)
-
-        # Placeholder para saltar al ELSE (o al fin si no hay else)
         self.emit(JMP_IF_FALSE, 0)
-        jump_to_else_idx = len(self.code) - 1
+        jump_else = len(self.code) - 1
 
-        # Compilar cuerpo TRUE
-        for stmt in node.body: self.compile(stmt)
+        self.compile_block(node.body)
 
         if node.else_body:
-            # Si hay else, al terminar el TRUE debemos saltar al final
             self.emit(JMP, 0)
-            jump_to_end_idx = len(self.code) - 1
+            jump_end = len(self.code) - 1
 
-            # --- Aquí empieza el ELSE ---
-            # Corregimos el primer salto (JMP_IF_FALSE) para que caiga aquí
-            self.code[jump_to_else_idx] = len(self.code)
-
-            # Compilamos cuerpo ELSE
-            for stmt in node.else_body: self.compile(stmt)
-
-            # --- Aquí termina todo ---
-            # Corregimos el salto del bloque TRUE para que caiga aquí
-            self.code[jump_to_end_idx] = len(self.code)
+            self.code[jump_else] = len(self.code)
+            self.compile_block(node.else_body)
+            self.code[jump_end] = len(self.code)
         else:
-            # Si no hay else, el JMP_IF_FALSE salta directo aquí
-            self.code[jump_to_else_idx] = len(self.code)
+            self.code[jump_else] = len(self.code)
 
     def compile_While(self, node):
-        # 1. Marcar inicio del bucle (para volver aquí)
         loop_start = len(self.code)
-
-        # 2. Compilar condición
         self.compile(node.cond)
-
-        # 3. Salir si es falso
         self.emit(JMP_IF_FALSE, 0)
         exit_jump_idx = len(self.code) - 1
 
-        # 4. Cuerpo
-        for stmt in node.body:
-            self.compile(stmt)
+        self.compile_block(node.body)
 
-        # 5. Volver al inicio (Loop)
         self.emit(JMP, loop_start)
-
-        # 6. Patching: Arreglar el salto de salida
         self.code[exit_jump_idx] = len(self.code)
 
     def compile_Return(self, node):
@@ -159,5 +131,21 @@ class Compiler:
         else:
             # Llamada de usuario normal
             idx = self.add_const(node.name)
-            self.emit(LOAD_CONST, idx)
+            self.emit(LOAD_VAR, idx)
             self.emit(CALL, len(node.args))
+
+    def compile_FuncDecl(self, node):
+        self.emit(JMP, 0)
+        jump_idx = len(self.code) - 1
+        start_addr = len(self.code)
+
+        self.compile_block(node.body)
+
+        if not self.code or self.code[-1] != RET:
+            self.emit(LOAD_CONST, self.add_const(None))
+            self.emit(RET)
+
+        self.code[jump_idx] = len(self.code)
+
+        self.emit(LOAD_CONST, self.add_const(start_addr))
+        self.emit(STORE_VAR, self.add_const(node.name))
