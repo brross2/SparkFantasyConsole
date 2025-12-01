@@ -67,7 +67,7 @@ class Compiler:
         self.compile(node.right)
 
         op_map = {
-            '+': ADD, '-': SUB, '*': MUL, '/': DIV,
+            '+': ADD, '-': SUB, '*': MUL, '/': DIV, '%': MOD,
             '==': EQ, '~=': NEQ, '<': LT, '<=': LTE, '>': GT, '>=': GTE
         }
         if node.op in op_map:
@@ -138,6 +138,11 @@ class Compiler:
         self.emit(JMP, 0)
         jump_idx = len(self.code) - 1
         start_addr = len(self.code)
+
+        if node.params:
+            for param_name in reversed(node.params):
+                idx = self.add_const(param_name)
+                self.emit(STORE_VAR, idx)
 
         self.compile_block(node.body)
 

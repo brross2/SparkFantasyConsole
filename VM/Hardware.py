@@ -30,8 +30,10 @@ class SparkHardware:
                            (0, 0, 0)  # Relleno hasta 32 por seguridad
                        ] * 2
 
+        self.spritesheet = pygame.Surface((128,128))
         self.clock = pygame.time.Clock()
         self.running = True
+        self._gen_debug_sprites()
 
     def clear_screen(self):
         """Limpia la VRAM con color negro (índice 0)"""
@@ -76,3 +78,36 @@ class SparkHardware:
             return keys[key_map[btn_id]]
 
         return False
+
+    def _gen_debug_sprites(self):
+        """Genera patrones de colores para probar spr() sin archivos"""
+        for i in range(256):
+            # Coordenadas en la hoja (0-15) * 8
+            sx = (i % 16) * 8
+            sy = (i // 16) * 8
+
+            # Color base (usamos el ID para variar el color)
+            col = self.palette[i % len(self.palette)]
+            contrast_col = self.palette[(i + 8) % len(self.palette)]
+
+            # Dibujamos un cuadradito relleno
+            pygame.draw.rect(self.spritesheet, col, (sx, sy, 8, 8))
+            # Dibujamos un detalle (un punto en el centro)
+            pygame.draw.rect(self.spritesheet, contrast_col, (sx + 2, sy + 2, 4, 4))
+
+        # IMPORTANTE: Definir el color transparente (Color 0 = Negro)
+        # Esto hace que el fondo del sprite no tape lo que hay detrás
+        self.spritesheet.set_colorkey(self.palette[0])
+
+    def spr(self, sprite_id, x, y):
+        """Dibuja el sprite ID (0-255) en la posición (x, y)"""
+        # Aseguramos que el ID sea válido (0-255)
+        sid = int(sprite_id) % 256
+
+        # Calculamos dónde vive ese sprite dentro de la hoja de 128x128
+        sheet_x = (sid % 16) * 8
+        sheet_y = (sid // 16) * 8
+
+        # Copiamos (Blit) ese trocito de 8x8 a la pantalla
+        # area=(rect) define qué pedazo copiar
+        self.screen.blit(self.spritesheet, (x, y), (sheet_x, sheet_y, 8, 8))

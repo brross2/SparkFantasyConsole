@@ -11,6 +11,7 @@ SUB           = 11
 MUL           = 12
 DIV           = 13
 NEG           = 14
+MOD           = 15
 
 EQ            = 20 # ==
 NEQ           = 21 # ~=
@@ -33,6 +34,7 @@ SYS_FUNCTIONS = {
     "sfx": 1,
     "spr": 2,
     "map": 3,
-    "btn": 4
+    "btn": 4,
+    "cls": 5
 }
 

@@ -44,19 +44,19 @@ class SparkVM:
 
         # --- A. Datos ---
         if op == LOAD_CONST:
-            idx = self.code[self.ip];
+            idx = self.code[self.ip]
             self.ip += 1
             self.stack.append(self.consts[idx])
 
         elif op == LOAD_VAR:
-            idx = self.code[self.ip];
+            idx = self.code[self.ip]
             self.ip += 1
             name = self.consts[idx]
             val = self.globals.get(name, 0.0)
             self.stack.append(val)
 
         elif op == STORE_VAR:
-            idx = self.code[self.ip];
+            idx = self.code[self.ip]
             self.ip += 1
             name = self.consts[idx]
             val = self.stack.pop()
@@ -67,59 +67,63 @@ class SparkVM:
 
         # --- B. Aritmética ---
         elif op == ADD:
-            b = self.stack.pop();
+            b = self.stack.pop()
             a = self.stack.pop()
             self.stack.append(a + b)
         elif op == SUB:
-            b = self.stack.pop();
+            b = self.stack.pop()
             a = self.stack.pop()
             self.stack.append(a - b)
         elif op == MUL:
-            b = self.stack.pop();
+            b = self.stack.pop()
             a = self.stack.pop()
             self.stack.append(a * b)
         elif op == DIV:
-            b = self.stack.pop();
+            b = self.stack.pop()
             a = self.stack.pop()
             self.stack.append(a / b if b != 0 else 0)
         elif op == NEG:
             val = self.stack.pop()
             self.stack.append(-val)
+        elif op == MOD:
+            b = self.stack.pop()
+            a = self.stack.pop()
+            self.stack.append(a % b if b != 0 else 0)
 
         # --- C. Comparaciones ---
         elif op == EQ:
-            b = self.stack.pop();
+            b = self.stack.pop()
             a = self.stack.pop()
             self.stack.append(a == b)
         elif op == NEQ:
-            b = self.stack.pop();
+            b = self.stack.pop()
             a = self.stack.pop()
             self.stack.append(a != b)
         elif op == LT:
-            b = self.stack.pop();
+            b = self.stack.pop()
             a = self.stack.pop()
             self.stack.append(a < b)
         elif op == LTE:
-            b = self.stack.pop();
+            b = self.stack.pop()
             a = self.stack.pop()
             self.stack.append(a <= b)
         elif op == GT:
-            b = self.stack.pop();
+            b = self.stack.pop()
             a = self.stack.pop()
             self.stack.append(a > b)
         elif op == GTE:
-            b = self.stack.pop();
+            b = self.stack.pop()
             a = self.stack.pop()
             self.stack.append(a >= b)
 
         # --- D. Saltos ---
         elif op == JMP:
-            target = self.code[self.ip];
+            target = self.code[self.ip]
             self.ip += 1
             self.ip = target
 
         elif op == JMP_IF_FALSE:
-            target = self.code[self.ip];
+            target = self.code[self.ip]
             self.ip += 1
             val = self.stack.pop()
             if not val:
@@ -129,31 +133,28 @@ class SparkVM:
         elif op == HALT:
             self.halted = True
 
+
         elif op == CALL:
-            argc = self.code[self.ip];
+            argc = self.code[self.ip]
             self.ip += 1
-            args = []
-            for _ in range(argc):
-                args.insert(0, self.stack.pop())
 
             func_target = self.stack.pop()
             target_addr = None
-
             if isinstance(func_target, int):
                 target_addr = func_target
             elif isinstance(func_target, str):
                 target_addr = self.globals.get(func_target)
-
             if isinstance(target_addr, int):
                 self.call_stack.append(self.ip)
                 self.ip = target_addr
             else:
-                pass
+                for _ in range(argc):
+                    if self.stack: self.stack.pop()
 
         elif op == SYS:
-            sys_id = self.code[self.ip];
+            sys_id = self.code[self.ip]
             self.ip += 1
-            argc = self.code[self.ip];
+            argc = self.code[self.ip]
             self.ip += 1
 
             args = []
@@ -167,6 +168,11 @@ class SparkVM:
                         self.hardware.pset(args[0], args[1], args[2])
                     self.stack.append(0)  # Un solo append
 
+                elif sys_id == 2: #spr(id,x,y)
+                    if len(args) >= 3:
+                        self.hardware.spr(args[0], args[1], args[2])
+                    self.stack.append(0)
+
                 elif sys_id == 4:  # btn
                     if len(args) >= 1:
                         btn_id = int(args[0])
@@ -174,6 +180,10 @@ class SparkVM:
                         self.stack.append(1 if is_pressed else 0)
                     else:
                         self.stack.append(0)
+
+                elif sys_id == 5:
+                    self.hardware.clear_screen()
+                    self.stack.append(0)
 
                 else:  # Otros IDs
                     self.stack.append(0)
