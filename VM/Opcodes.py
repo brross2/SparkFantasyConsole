@@ -35,6 +35,7 @@ SYS_FUNCTIONS = {
     "spr": 2,
     "map": 3,
     "btn": 4,
-    "cls": 5
+    "cls": 5,
+    "print": 6
 }
 

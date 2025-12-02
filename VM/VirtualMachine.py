@@ -185,6 +185,19 @@ class SparkVM:
                     self.hardware.clear_screen()
                     self.stack.append(0)
 
+                elif sys_id == 6:
+                    if len(args) >= 4:
+                        text = args[0]
+                        x = args[1]
+                        y = args[2]
+                        c = args[3]
+                        is_small = False
+                        if len(args) >= 5:
+                            if args[4] == 1: is_small = True
+
+                        self.hardware.print_text (text, x, y, c, is_small)
+                    self.stack.append(0)
+
                 else:  # Otros IDs
                     self.stack.append(0)
             else:

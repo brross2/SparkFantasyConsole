@@ -1,5 +1,6 @@
 from VM.Data import *
 from VM.Opcodes import *
+from VM.SystemSpecs import *
 
 
 class Compiler:
@@ -118,6 +119,13 @@ class Compiler:
         self.emit(RET)
 
     def compile_Call(self, node):
+        if node.name in SYS_SPECS:
+            required = SYS_SPECS[node.name]["min_args"]
+            given = len(node.args)
+            if given < required:
+                # Lanzamos SyntaxError que el Editor capturará y marcará en rojo
+                raise SyntaxError(f"'{node.name}' necesita {required} args, diste {given}")
+
         # 1. Compilar Argumentos (se ponen en el stack)
         for arg in node.args:
             self.compile(arg)

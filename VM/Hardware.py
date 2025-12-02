@@ -1,13 +1,20 @@
 import pygame
 
+from VM.SparkFont import SparkFont
+
 
 class SparkHardware:
-    def __init__(self, scale=3):
+    def __init__(self, scale=4):
         pygame.init()
 
-        # Especificaciones de Hardware
+        # Resolucion de juego.
         self.WIDTH = 160
         self.HEIGHT = 160
+
+        # Resolucion editor.
+        self.ED_WIDTH = 320
+        self.ED_HEIGHT = 320
+
         self.SCALE = scale
 
         # 1. La Ventana Física (Lo que ve el usuario)
@@ -18,6 +25,8 @@ class SparkHardware:
         # 2. La VRAM (Buffer interno de 160x160)
         self.screen = pygame.Surface((self.WIDTH, self.HEIGHT))
         self.screen.fill((0, 0, 0))  # Limpiar pantalla inicial
+
+        self.editor_screen = pygame.Surface((self.ED_WIDTH, self.ED_HEIGHT))
 
         # 3. Paleta de Colores (32 colores fijos)
         # Usamos una lista de tuplas (R, G, B)
@@ -111,3 +120,53 @@ class SparkHardware:
         # Copiamos (Blit) ese trocito de 8x8 a la pantalla
         # area=(rect) define qué pedazo copiar
         self.screen.blit(self.spritesheet, (x, y), (sheet_x, sheet_y, 8, 8))
+
+        # En VM/Hardware.py -> SparkHardware
+
+    def print_text(self, text, x, y, color_idx, is_small=False, target=None):
+        """
+        Dibuja texto.
+        target: Surface de destino. Si es None, usa self.screen (Juego)
+        """
+        # Si no especifican target, usamos la pantalla del juego (comportamiento default)
+        dest_surf = target if target else self.screen
+        dest_w = dest_surf.get_width()
+        dest_h = dest_surf.get_height()
+
+        cursor_x = int(x)
+        cursor_y = int(y)
+
+        safe_idx = int(color_idx) % len(self.palette)
+        color = self.palette[safe_idx]
+
+        font_data = SparkFont.DATA_SMALL if is_small else SparkFont.DATA_BIG
+        width = 4 if is_small else 8
+        height = 6 if is_small else 8
+        spacing = 5 if is_small else 9
+
+        for char in str(text).upper():
+            if char in font_data:
+                bitmap = font_data[char]
+                for row_idx, row_byte in enumerate(bitmap):
+                    bits_to_read = width
+                    for col_idx in range(bits_to_read):
+                        shift = (width - 1) - col_idx
+                        if (row_byte >> shift) & 1:
+                            px = cursor_x + col_idx
+                            py = cursor_y + row_idx
+                            # Check de limites contra la superficie de destino
+                            if 0 <= px < dest_w and 0 <= py < dest_h:
+                                dest_surf.set_at((px, py), color)
+            cursor_x += spacing
+
+    def flip(self, mode="GAME"):
+        """Renderiza la VRAM correcta a la ventana"""
+        if mode == "GAME":
+            # Escalar 160 -> 640 (x4)
+            pygame.transform.scale(self.screen, self.window.get_size(), self.window)
+        else:
+            # Escalar 320 -> 640 (x2) - Se ve más nítido
+            pygame.transform.scale(self.editor_screen, self.window.get_size(), self.window)
+
+        pygame.display.flip()
+        self.clock.tick(60)
