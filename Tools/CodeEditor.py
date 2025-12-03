@@ -5,12 +5,21 @@ from VM.Parser import Parser
 from VM.SystemSpecs import SYS_SPECS
 
 # Configuración de Colores (Indices de la paleta)
+# En Tools/CodeEditor.py
+
+# En Tools/CodeEditor.py
+
+# Configuración de Colores (Indices de la paleta)
+# 0:Negro, 1:AzulOsc, 2:Morado, 3:VerdeOsc, 4:Marron, 5:GrisOsc, 6:GrisClaro, 7:Blanco
+# 8:Rojo, 9:Naranja, 10:Amarillo, 11:Verde, 12:Azul, 13:Lavanda, 14:Rosa, 15:Melocoton
+
 THEMES = {
     "DARK": {
         "bg": 0,       "num_bg": 1,   "num_fg": 6,
         "text": 7,     "keyword": 12, "string": 11,
         "number": 9,   "comment": 5,  "symbol": 6,
-        "func_name": 14, # <--- NUEVO (Rosado)
+        "func_name": 14,
+        "selection": 5,
         "cursor": 8,   "error": 8,
         "bar_bg": 6,   "bar_text": 0
     },
@@ -18,9 +27,28 @@ THEMES = {
         "bg": 1,       "num_bg": 0,   "num_fg": 13,
         "text": 13,    "keyword": 11, "string": 10,
         "number": 9,   "comment": 6,  "symbol": 7,
-        "func_name": 12, # <--- NUEVO (Azul claro)
+        "func_name": 12,
+        "selection": 12,
         "cursor": 7,   "error": 2,
         "bar_bg": 7,   "bar_text": 1
+    },
+    "DRACULA": {
+        "bg": 0,       "num_bg": 2,   "num_fg": 13, # Fondo negro, Gutter Morado
+        "text": 6,     "keyword": 14, "string": 11, # Texto Gris, Key Rosa, String Verde
+        "number": 13,  "comment": 1,  "symbol": 14, # Num Lavanda, Comment Azul Osc
+        "func_name": 9,                             # Funciones Naranja
+        "selection": 2,                             # Selección Morada
+        "cursor": 8,   "error": 8,
+        "bar_bg": 2,   "bar_text": 7
+    },
+    "CREAM": {
+        "bg": 15,      "num_bg": 7,   "num_fg": 5,  # Fondo Melocotón, Gutter Blanco
+        "text": 5,     "keyword": 2,  "string": 3,  # Texto Gris Osc, Key Morado, String Verde Osc
+        "number": 8,   "comment": 13, "symbol": 4,  # Num Rojo, Comment Lavanda, Sym Marron
+        "func_name": 12,                            # Funciones Azul
+        "selection": 6,                             # Selección Gris Claro
+        "cursor": 2,   "error": 8,
+        "bar_bg": 5,   "bar_text": 7
     }
 }
 
@@ -46,6 +74,16 @@ class CodeEditor:
 
         # Calculamos líneas visibles (Alta resolución 320px)
         self.max_lines_visible = (self.hw.ED_HEIGHT - 12) // self.line_h
+
+        self.sel_start = None
+        self.sel_end = None
+
+        self.history = []
+        self.history_idx = -1
+        self.max_history = 50
+
+        pygame.scrap.init()
+        self.save_history()
 
     def load_code(self, source_code):
         self.lines = source_code.split('\n')
@@ -83,10 +121,17 @@ class CodeEditor:
                     pass
 
     def toggle_theme(self):
-        self.theme_name = "RETRO" if self.theme_name == "DARK" else "DARK"
-        self.theme = THEMES[self.theme_name]
+        theme_names = list(THEMES.keys())
+        try:
+            current_index = theme_names.index(self.theme_name)
+        except ValueError:
+            current_index = 0  # Fallback de seguridad
 
-    # --- MEJORA DE USABILIDAD 3: AUTO-INDENT ---
+        next_index = (current_index + 1) % len(theme_names)
+        self.theme_name = theme_names[next_index]
+        self.theme = THEMES[self.theme_name]
+        print(f"Theme changed to: {self.theme_name}")
+
     def get_indentation(self, line):
         """Cuenta espacios al inicio de la línea"""
         count = 0
@@ -109,6 +154,11 @@ class CodeEditor:
         return None
 
     def handle_input(self, event):
+        # Detectar modificadores
+        mods = pygame.key.get_mods()
+        ctrl = mods & pygame.KMOD_CTRL
+        shift = mods & pygame.KMOD_SHIFT
+
         # ... (Logica del MOUSE se mantiene igual, cópiala si la borraste) ...
         if event.type == pygame.MOUSEBUTTONDOWN:
             # (Pega aquí la lógica del mouse del paso anterior)
@@ -129,31 +179,81 @@ class CodeEditor:
                 current_len = len(self.lines[self.cy])
                 self.cx = min(current_len, target_x)
 
+            if shift:
+                if not self.sel_start:
+                    pass
+            else:
+                self.sel_start = None
+
+            if not shift:
+                self.sel_start = (self.cx, self.cy)
+
         elif event.type == pygame.KEYDOWN:
-            # Movimiento
+            # --- COMANDOS CTRL ---
+            if ctrl:
+                if event.key == pygame.K_c:
+                    self.copy()
+                elif event.key == pygame.K_x:
+                    self.cut()
+                elif event.key == pygame.K_v:
+                    self.paste()
+                elif event.key == pygame.K_z:
+                    self.undo()
+                elif event.key == pygame.K_y:
+                    self.redo()
+                return  # Si fue comando, no escribir la letra
+
+            # --- NAVEGACIÓN CON SELECCIÓN ---
+            # Si nos movemos CON Shift, iniciamos/mantenemos selección.
+            # Si nos movemos SIN Shift, cancelamos selección.
+
+            old_cx, old_cy = self.cx, self.cy
+
+            moved = False
             if event.key == pygame.K_UP:
                 self.cy = max(0, self.cy - 1)
+                moved = True
             elif event.key == pygame.K_DOWN:
                 self.cy = min(len(self.lines) - 1, self.cy + 1)
+                moved = True
             elif event.key == pygame.K_LEFT:
                 self.cx = max(0, self.cx - 1)
+                moved = True
             elif event.key == pygame.K_RIGHT:
                 self.cx = min(len(self.lines[self.cy]), self.cx + 1)
+                moved = True
+
+            if moved:
+                if shift:
+                    # Si acabamos de empezar a seleccionar, el punto de anclaje era el viejo
+                    if not self.sel_start:
+                        self.sel_start = (old_cx, old_cy)
+                else:
+                    # Moverse sin shift borra la selección
+                    self.sel_start = None
 
             # Borrado
             elif event.key == pygame.K_BACKSPACE:
-                if self.cx > 0:
-                    line = self.lines[self.cy]
-                    self.lines[self.cy] = line[:self.cx - 1] + line[self.cx:]
-                    self.cx -= 1
-                elif self.cy > 0:
-                    curr_line = self.lines.pop(self.cy)
-                    self.cy -= 1
-                    self.cx = len(self.lines[self.cy])
-                    self.lines[self.cy] += curr_line
+                # Si hay selección, borrarla
+                if self.sel_start and self.sel_start != (self.cx, self.cy):
+                    self.delete_selection()
+                else:
+                    # Lógica normal de Backspace (pero agregamos save_history)
+                    self.save_history()
+                    if self.cx > 0:
+                        line = self.lines[self.cy]
+                        self.lines[self.cy] = line[:self.cx - 1] + line[self.cx:]
+                        self.cx -= 1
+                    elif self.cy > 0:
+                        curr_line = self.lines.pop(self.cy)
+                        self.cy -= 1
+                        self.cx = len(self.lines[self.cy])
+                        self.lines[self.cy] += curr_line
 
             # --- AUTO-INDENT Y AUTO-END ---
             elif event.key == pygame.K_RETURN:
+                if self.sel_start: self.delete_selection()  # Enter sobre selección la borra
+                self.save_history()
                 current_line = self.lines[self.cy]
                 base_indent_len = self.get_indentation(current_line)
                 base_indent_str = " " * base_indent_len
@@ -203,6 +303,8 @@ class CodeEditor:
 
             # Tabulación
             elif event.key == pygame.K_TAB:
+                if self.sel_start: self.delete_selection()
+                self.save_history()
                 # 1. Intentar Autocompletar
                 word = self.get_word_before_cursor()
 
@@ -237,19 +339,20 @@ class CodeEditor:
             elif event.key == pygame.K_F2:
                 self.toggle_theme()
 
-            # Escritura
+            # --- ESCRITURA ---
             elif event.unicode and event.unicode.isprintable():
+                if self.sel_start: self.delete_selection()  # Escribir sobre selección la borra
+                self.save_history()
                 char = event.unicode
                 line = self.lines[self.cy]
                 self.lines[self.cy] = line[:self.cx] + char + line[self.cx:]
                 self.cx += 1
 
-            # Scroll Follow
+            # Scroll y Clamp
             if self.cy < self.scroll_y:
                 self.scroll_y = self.cy
             elif self.cy >= self.scroll_y + self.max_lines_visible:
                 self.scroll_y = self.cy - self.max_lines_visible + 1
-
             self.cx = min(len(self.lines[self.cy]), self.cx)
 
     # --- MEJORA DE USABILIDAD 4: HIGHLIGHTING REAL ---
@@ -319,6 +422,9 @@ class CodeEditor:
         pygame.draw.rect(target, self.hw.palette[self.theme["num_bg"]],
                          (0, 0, self.gutter_w, self.hw.ED_HEIGHT))
 
+        start, end = self.get_sorted_selection()
+        sel_color = self.hw.palette[self.theme["selection"]]
+
         # 2. Dibujar Líneas Visibles
         for i in range(self.max_lines_visible):
             line_idx = self.scroll_y + i
@@ -326,6 +432,37 @@ class CodeEditor:
 
             screen_y = i * self.line_h
             line_content = self.lines[line_idx]
+
+            # Lógica de resaltado de selección
+            if start and end:
+                sx, sy = start
+                ex, ey = end
+
+                # Caso 1: Línea completamente dentro de la selección (multilínea intermedia)
+                if sy < line_idx < ey:
+                    pygame.draw.rect(target, sel_color,  # Azul oscuro hardcoded o usar tema
+                                     (self.gutter_w, screen_y, self.hw.ED_WIDTH, self.line_h))
+
+                # Caso 2: Línea de inicio
+                elif line_idx == sy:
+                    # Si es una selección de una sola línea
+                    if sy == ey:
+                        start_px = self.gutter_w + 4 + (sx * 5)
+                        end_px = self.gutter_w + 4 + (ex * 5)
+                        pygame.draw.rect(target, sel_color,
+                                         (start_px, screen_y, end_px - start_px, self.line_h))
+                    else:
+                        # Desde sx hasta el final
+                        start_px = self.gutter_w + 4 + (sx * 5)
+                        pygame.draw.rect(target, sel_color,
+                                         (start_px, screen_y, self.hw.ED_WIDTH, self.line_h))
+
+                # Caso 3: Línea final (multilínea)
+                elif line_idx == ey:
+                    # Desde 0 hasta ex
+                    end_px = self.gutter_w + 4 + (ex * 5)
+                    pygame.draw.rect(target, sel_color,
+                                     (self.gutter_w, screen_y, end_px - self.gutter_w, self.line_h))
 
             # A. Highlight de Error (Fondo rojo en la línea)
             if line_idx == self.error_line:
@@ -371,3 +508,157 @@ class CodeEditor:
 
             # Dibujamos en rojo (o color de error del tema)
             self.hw.print_text(display_msg, 90, bar_y + 2, self.theme["error"], is_small=True, target=target)
+
+        # --- MÓDULO HISTORIAL ---
+
+    # --- MÓDULO SELECCIÓN Y CLIPBOARD ---
+    def get_sorted_selection(self):
+        """Retorna (start_x, start_y), (end_x, end_y) ordenados"""
+        if not self.sel_start: return None, None
+
+        # Cursor actual es el final dinámico
+        p1 = self.sel_start
+        p2 = (self.cx, self.cy)
+
+        # Comparar tuplas (y, x) para ver cuál va primero
+        # Python compara tuplas elemento a elemento: (0, 5) < (1, 0) es True
+        if (p1[1], p1[0]) < (p2[1], p2[0]):
+            return p1, p2
+        else:
+            return p2, p1
+
+    def delete_selection(self):
+        """Borra el texto seleccionado y retorna True si borró algo"""
+        start, end = self.get_sorted_selection()
+        if not start: return False
+
+        self.save_history()  # Guardar antes de destruir
+
+        sx, sy = start
+        ex, ey = end
+
+        if sy == ey:
+            # Misma línea: fácil
+            line = self.lines[sy]
+            self.lines[sy] = line[:sx] + line[ex:]
+        else:
+            # Multilínea: complejo
+            # 1. Tomar parte izquierda de la primera línea
+            first_part = self.lines[sy][:sx]
+            # 2. Tomar parte derecha de la última línea
+            last_part = self.lines[ey][ex:]
+            # 3. Unir
+            self.lines[sy] = first_part + last_part
+            # 4. Eliminar líneas intermedias
+            # Borramos desde sy+1 hasta ey (incluido)
+            del self.lines[sy + 1: ey + 1]
+
+        # Mover cursor al inicio del borrado
+        self.cx, self.cy = sx, sy
+        self.sel_start = None  # Limpiar selección
+        return True
+
+    def get_selected_text(self):
+        start, end = self.get_sorted_selection()
+        if not start: return ""
+
+        sx, sy = start
+        ex, ey = end
+
+        if sy == ey:
+            return self.lines[sy][sx:ex]
+
+        # Multilínea
+        text = [self.lines[sy][sx:]]  # Resto de primera línea
+        for i in range(sy + 1, ey):
+            text.append(self.lines[i])  # Líneas intermedias completas
+        text.append(self.lines[ey][:ex])  # Inicio de última línea
+
+        return "\n".join(text)
+
+    def copy(self):
+        text = self.get_selected_text()
+        if text:
+            # Ponemos en el clipboard del sistema (UTF-8)
+            pygame.scrap.put(pygame.SCRAP_TEXT, text.encode("utf-8"))
+
+    def cut(self):
+        self.copy()
+        self.delete_selection()
+
+    def paste(self):
+        # Obtener texto del sistema (bytes -> string)
+        content = pygame.scrap.get(pygame.SCRAP_TEXT)
+        if not content: return
+
+        text = content.decode("utf-8").replace("\0", "")  # Limpieza
+
+        if not text: return
+        self.save_history()
+
+        # Si hay selección activa, pegar la reemplaza
+        if self.sel_start:
+            self.delete_selection()
+
+        # Insertar texto
+        lines_to_paste = text.split('\n')
+
+        if len(lines_to_paste) == 1:
+            # Caso simple: insertar en línea actual
+            line = self.lines[self.cy]
+            self.lines[self.cy] = line[:self.cx] + lines_to_paste[0] + line[self.cx:]
+            self.cx += len(lines_to_paste[0])
+        else:
+            # Caso multilínea
+            # 1. Cortar línea actual
+            prefix = self.lines[self.cy][:self.cx]
+            suffix = self.lines[self.cy][self.cx:]
+
+            # 2. Primera línea pegada se une al prefijo
+            self.lines[self.cy] = prefix + lines_to_paste[0]
+
+            # 3. Líneas intermedias se insertan nuevas
+            for i in range(1, len(lines_to_paste) - 1):
+                self.lines.insert(self.cy + i, lines_to_paste[i])
+
+            # 4. Última línea pegada se une al sufijo
+            last_pasted = lines_to_paste[-1]
+            self.lines.insert(self.cy + len(lines_to_paste) - 1, last_pasted + suffix)
+
+            # 5. Actualizar cursor
+            self.cy += len(lines_to_paste) - 1
+            self.cx = len(last_pasted)
+
+    # --- MÓDULO HISTORIAL ---
+    def save_history(self):
+        """Guarda una instantánea del estado actual ANTES de modificarlo"""
+        # Si estamos en medio del historial y escribimos, borramos el futuro (Redo perdido)
+        if self.history_idx < len(self.history) - 1:
+            self.history = self.history[:self.history_idx + 1]
+
+        snapshot = {
+            "lines": list(self.lines),  # Copia superficial de la lista
+            "cx": self.cx,
+            "cy": self.cy
+        }
+        self.history.append(snapshot)
+        if len(self.history) > self.max_history:
+            self.history.pop(0)
+
+        self.history_idx = len(self.history) - 1
+
+    def undo(self):
+        if self.history_idx > 0:
+            self.history_idx -= 1
+            self.restore_state(self.history[self.history_idx])
+
+    def redo(self):
+        if self.history_idx < len(self.history) - 1:
+            self.history_idx += 1
+            self.restore_state(self.history[self.history_idx])
+
+    def restore_state(self, snapshot):
+        self.lines = list(snapshot["lines"])
+        self.cx = snapshot["cx"]
+        self.cy = snapshot["cy"]
+        self.validate_syntax()  # Re-validar al volver atrás
