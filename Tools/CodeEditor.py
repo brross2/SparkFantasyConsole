@@ -2,7 +2,7 @@ import pygame
 import re  # Necesario para el Syntax Highlighting
 from VM.Lexer import KEYWORDS, Lexer
 from VM.Parser import Parser
-from VM.SystemSpecs import SYS_SPECS
+from VM.SystemSpecs import *
 
 # Configuración de Colores (Indices de la paleta)
 # En Tools/CodeEditor.py
@@ -57,7 +57,7 @@ class CodeEditor:
     def __init__(self, hardware):
         self.hw = hardware
         self.lines = [""]
-        self.cx = 0;
+        self.cx = 0
         self.cy = 0
         self.scroll_y = 0
 
@@ -81,6 +81,12 @@ class CodeEditor:
         self.history = []
         self.history_idx = -1
         self.max_history = 50
+
+        # --- INTELLISENSE STATE ---
+        self.suggest_active = False
+        self.suggest_list = []  # Lista actual a mostrar
+        self.suggest_idx = 0  # Elemento seleccionado
+        self.suggest_pos = (0, 0)  # Dónde dibujar la ventana (x, y)
 
         pygame.scrap.init()
         self.save_history()
@@ -189,6 +195,50 @@ class CodeEditor:
                 self.sel_start = (self.cx, self.cy)
 
         elif event.type == pygame.KEYDOWN:
+            if self.suggest_active:
+                if event.key == pygame.K_UP:
+                    self.suggest_idx = max(0, self.suggest_idx - 1)
+                    return  # Consumir evento
+                elif event.key == pygame.K_DOWN:
+                    self.suggest_idx = min(len(self.suggest_list) - 1, self.suggest_idx + 1)
+                    return
+                elif event.key in [pygame.K_RETURN, pygame.K_TAB]:
+                    # CONFIRMAR SELECCIÓN
+                    item = self.suggest_list[self.suggest_idx]
+                    val = item["val"]
+
+                    # Insertar valor en el texto
+                    line = self.lines[self.cy]
+                    self.lines[self.cy] = line[:self.cx] + val + line[self.cx:]
+                    self.cx += len(val)
+
+                    # Cerrar menú
+                    self.suggest_active = False
+                    self.save_history()
+                    return
+                elif event.key == pygame.K_ESCAPE:
+                    self.suggest_active = False
+                    return
+
+                # --- ACTIVACIÓN (CTRL + SPACE) ---
+            if event.key == pygame.K_SPACE and ctrl:
+                self.trigger_suggestion()
+                return
+
+                # --- DETECCIÓN INTELIGENTE DE COMA ---
+                # Si escribimos una coma, sugerimos colores automáticamente
+                # (Podrías refinar esto para que solo pase dentro de pset/spr)
+            if event.unicode == ",":
+                self.save_history()
+                line = self.lines[self.cy]
+                self.lines[self.cy] = line[:self.cx] + "," + line[self.cx:]
+                self.cx += 1
+
+                # Intentamos abrir sugerencia (ahora es inteligente)
+                self.trigger_suggestion()
+                return
+
+
             # --- COMANDOS CTRL ---
             if ctrl:
                 if event.key == pygame.K_c:
@@ -355,6 +405,80 @@ class CodeEditor:
                 self.scroll_y = self.cy - self.max_lines_visible + 1
             self.cx = min(len(self.lines[self.cy]), self.cx)
 
+    def analyze_cursor_context(self):
+        """
+        Analiza el texto ANTES del cursor para saber en qué función estamos.
+        Retorna: (func_name, arg_index) o (None, 0)
+        """
+        line = self.lines[self.cy]
+        text_before = line[:self.cx]
+
+        # 1. Buscar hacia atrás el paréntesis de apertura '('
+        # Debemos tener cuidado con paréntesis anidados. Usamos un contador.
+        paren_balance = 0
+        arg_index = 0
+
+        # Recorremos el string al revés
+        for i in range(len(text_before) - 1, -1, -1):
+            char = text_before[i]
+
+            if char == ')':
+                paren_balance += 1  # Entramos a una sub-expresión cerrada (ignorar)
+
+            elif char == '(':
+                if paren_balance > 0:
+                    paren_balance -= 1  # Salimos de sub-expresión
+                else:
+                    # ¡ENCONTRADO EL INICIO DE LA LLAMADA!
+                    # Ahora miramos qué palabra hay justo antes del '('
+                    # Ej: "pset  (" -> buscamos "pset"
+
+                    # Cortamos lo que hay antes del parentesis
+                    prefix = text_before[:i].strip()
+                    # Buscamos la última palabra
+                    match = re.search(r'([a-zA-Z_]\w*)$', prefix)
+                    if match:
+                        func_name = match.group(1)
+                        return func_name, arg_index
+                    return None, 0
+
+            elif char == ',' and paren_balance == 0:
+                # Si encontramos una coma en el nivel actual, aumentamos el índice de argumento
+                arg_index += 1
+
+        return None, 0
+
+    def trigger_suggestion(self):
+        """Abre IntelliSense SOLO si corresponde (ej: argumento de color)"""
+
+        # 1. Analizar contexto
+        func_name, arg_idx = self.analyze_cursor_context()
+
+        should_open = False
+
+        if func_name and func_name in SYS_SPECS:
+            specs = SYS_SPECS[func_name]
+            # Verificar si tiene lista de tipos y si el índice es válido
+            if "args" in specs and arg_idx < len(specs["args"]):
+                arg_type = specs["args"][arg_idx]
+
+                # CONDICIÓN DE ORO: Solo si se espera un COLOR
+                if arg_type == "color":
+                    self.suggest_list = COLOR_SUGGESTIONS
+                    should_open = True
+
+        if should_open:
+            self.suggest_active = True
+            self.suggest_idx = 0
+
+            screen_x = self.gutter_w + (self.cx * 5)
+            screen_y = ((self.cy - self.scroll_y) * self.line_h) + self.line_h
+
+            if screen_x + 80 > self.hw.ED_WIDTH: screen_x = self.hw.ED_WIDTH - 80
+            if screen_y + 100 > self.hw.ED_HEIGHT: screen_y = screen_y - 100 - self.line_h
+
+            self.suggest_pos = (screen_x, screen_y)
+
     # --- MEJORA DE USABILIDAD 4: HIGHLIGHTING REAL ---
     def draw_highlighted_line(self, text, x, y, target):
         """
@@ -509,7 +633,50 @@ class CodeEditor:
             # Dibujamos en rojo (o color de error del tema)
             self.hw.print_text(display_msg, 90, bar_y + 2, self.theme["error"], is_small=True, target=target)
 
-        # --- MÓDULO HISTORIAL ---
+        if self.suggest_active:
+            sx, sy = self.suggest_pos
+            w = 80
+            h = min(len(self.suggest_list) * 8 + 4, 100)  # Max altura 100px
+
+            # 1. Caja Fondo (Sombra y Marco)
+            # Sombra
+            pygame.draw.rect(target, (0, 0, 0), (sx + 2, sy + 2, w, h))
+            # Fondo (Gris claro tema Retro o Azul tema Dark)
+            bg_col = self.hw.palette[self.theme["num_bg"]]
+            pygame.draw.rect(target, bg_col, (sx, sy, w, h))
+            # Borde
+            pygame.draw.rect(target, self.hw.palette[self.theme["text"]], (sx, sy, w, h), 1)
+
+            # 2. Lista de Elementos (Con Scroll virtual si fueran muchos, aquí simplificado)
+            # Para simplificar, mostramos una ventana de 10 items centrada en la selección
+            start_i = 0
+            if self.suggest_idx > 8: start_i = self.suggest_idx - 8
+            end_i = min(start_i + 12, len(self.suggest_list))
+
+            item_y = sy + 2
+
+            for i in range(start_i, end_i):
+                item = self.suggest_list[i]
+
+                # Highlight de selección
+                fg_col = self.theme["text"]
+                if i == self.suggest_idx:
+                    # Fondo de selección
+                    pygame.draw.rect(target, self.hw.palette[self.theme["selection"]],
+                                     (sx + 1, item_y - 1, w - 2, 8))
+                    fg_col = self.theme["bg"]  # Texto invertido
+
+                # Dibujar Swatch de Color (Cuadradito)
+                if "color_idx" in item:
+                    c_idx = item["color_idx"]
+                    col_rgb = self.hw.palette[c_idx]
+                    pygame.draw.rect(target, col_rgb, (sx + 4, item_y + 1, 4, 4))
+                    # Texto
+                    self.hw.print_text(item["label"], sx + 12, item_y, fg_col, is_small=True, target=target)
+                else:
+                    self.hw.print_text(item["label"], sx + 4, item_y, fg_col, is_small=True, target=target)
+
+                item_y += 8
 
     # --- MÓDULO SELECCIÓN Y CLIPBOARD ---
     def get_sorted_selection(self):
