@@ -6,19 +6,19 @@
 # snippet: texto a insertar al autocompletar (lo que va después del nombre)
 
 SYS_SPECS = {
-    "pset": {"min_args": 3, "snippet": "(x, y, 7)", "args": ["int", "int", "color"]},
-    "line": {"min_args": 5, "snippet": "(x0, y0, x1, y1, 7)", "args": ["int", "int", "int", "int", "color"]},
-    "rect": {"min_args": 5, "snippet": "(x, y, w, h, 7)", "args": ["int", "int", "int", "int", "color"]},
-    "spr": {"min_args": 3, "snippet": "(0, x, y)", "args": ["int", "int", "int"]},  # spr no pide color
-    "btn": {"min_args": 1, "snippet": "(0)", "args": ["int"]},
-    "print": {"min_args": 4, "snippet": '("TEXT", x, y, 7)', "args": ["str", "int", "int", "color", "int"]},
-    "cls": {"min_args": 0, "snippet": "()", "args": []},
-    "sfx": {"min_args": 1, "snippet": "(0)", "args": ["int"]},
+    "pset":     {"min_args": 3, "snippet": "(x, y, 7)", "args": ["int", "int", "color"]},
+    "line":     {"min_args": 5, "snippet": "(x0, y0, x1, y1, 7)", "args": ["int", "int", "int", "int", "color"]},
+    "rect":     {"min_args": 5, "snippet": "(x, y, w, h, 7)", "args": ["int", "int", "int", "int", "color"]},
+    "spr":      {"min_args": 3, "snippet": "(0, x, y)", "args": ["int", "int", "int"]},  # spr no pide color
+    "btn":      {"min_args": 1, "snippet": "(0)", "args": ["btn_id"]},
+    "print":    {"min_args": 4, "snippet": '("TEXT", x, y, 7)', "args": ["str", "int", "int", "color", "int"]},
+    "cls":      {"min_args": 0, "snippet": "()", "args": []},
+    "sfx":      {"min_args": 1, "snippet": "(0)", "args": ["int"]},
 
     # Control structures
     "function": {"min_args": 0, "snippet": " name()\n    \nend", "args": []},
-    "if": {"min_args": 0, "snippet": " condition then\n    \nend", "args": []},
-    "while": {"min_args": 0, "snippet": " condition do\n    \nend", "args": []}
+    "if":       {"min_args": 0, "snippet": " condition then\n    \nend", "args": []},
+    "while":    {"min_args": 0, "snippet": " condition do\n    \nend", "args": []}
 }
 
 COLOR_SUGGESTIONS = [
@@ -57,4 +57,13 @@ COLOR_SUGGESTIONS = [
     {"label": "29 INDIGO", "val": "29", "color_idx": 29},
     {"label": "30 MAGENTA", "val": "30", "color_idx": 30},
     {"label": "31 SAND", "val": "31", "color_idx": 31},
+]
+
+BUTTON_SUGGESTIONS = [
+    {"label": "0  < LEFT",   "val": "0"},
+    {"label": "1  > RIGHT",  "val": "1"},
+    {"label": "2  ^ UP",     "val": "2"},
+    {"label": "3  v DOWN",   "val": "3"},
+    {"label": "4  (A) Z-KEY","val": "4"},
+    {"label": "5  (B) X-KEY","val": "5"},
 ]

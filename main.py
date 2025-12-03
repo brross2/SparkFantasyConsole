@@ -118,10 +118,21 @@ def main():
             hw.flip(mode="EDITOR")
 
         elif current_mode == MODE_GAME:
-            # El input del juego es por polling en hardware.btn()
-            # No necesitamos pasarle eventos.
             vm.call_function("update")
             vm.call_function("draw")
+
+            # --- DETECCIÓN DE CRASH ---
+            if vm.halted and vm.runtime_error:
+                print(f"Juego crasheó: {vm.runtime_error}")
+
+                # Volver al editor
+                current_mode = MODE_EDITOR
+                pygame.display.set_caption("Spark - EDITOR (CRASHED)")
+                pygame.key.set_repeat(400, 30)
+
+                # Mostrar el error en la barra roja del editor
+                editor.set_error(vm.runtime_error)
+
             hw.flip(mode="GAME")
 
 
