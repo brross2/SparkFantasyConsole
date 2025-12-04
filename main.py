@@ -1,140 +1,236 @@
 import pygame
 import time
+
+from BIOS import BIOS_SOURCE
 from VM.Lexer import Lexer
 from VM.Parser import Parser
 from VM.Compiler import Compiler
 from VM.VirtualMachine import SparkVM
 from VM.Hardware import SparkHardware
-from Tools.CodeEditor import CodeEditor  # <--- Importamos la herramienta
+from Tools.CodeEditor import CodeEditor
+from Tools.SystemConsole import SystemConsole
 
-# --- CÓDIGO INICIAL (VACÍO O DEMO) ---
-initial_code = """x = 76
+GAME_SOURCE = """
+x = 76
 y = 76
 c = 8
 
 function update()
-    if btn(0) then x = x - 1 end
-    if btn(1) then x = x + 1 end
-    if btn(2) then y = y - 1 end
-    if btn(3) then y = y + 1 end
+    if btn(0) then x = x - 2 end
+    if btn(1) then x = x + 2 end
+    if btn(2) then y = y - 2 end
+    if btn(3) then y = y + 2 end
 
     if btn(4) then c = c + 1 end
 end
 
 function draw()
     cls()
-    print("HOLA EDITOR", x, y-10, 7)
+    print("HOLA EDITOR", x-10, y-10, 7)
     spr(0, x, y)
     pset(x, y, c)
 end
 """
 
 
-def main():
-    hw = SparkHardware(scale=4)
-    vm = SparkVM([], [], hardware=hw)
-    editor = CodeEditor(hw)
-    editor.load_code(initial_code)
+# ==========================================
+# 2. CLASE PRINCIPAL DEL SISTEMA
+# ==========================================
+class SparkSystem:
+    def __init__(self):
+        # Constantes de Estado
+        self.MODE_EDITOR = 0
+        self.MODE_GAME = 1
 
-    # ESTADOS
-    MODE_EDITOR = 0
-    MODE_GAME = 1
-    current_mode = MODE_EDITOR
-    pygame.key.set_repeat(400,30)
+        # Inicialización de Componentes
+        self.hw = SparkHardware(scale=4)
+        self.console = SystemConsole(self.hw)
+        self.vm = SparkVM([], [], hardware=self.hw)
 
-    running = True
-    while running:
-        # 1. CAPTURA DE EVENTOS (SINGLE SOURCE OF TRUTH)
-        # Solo main.py llama a pygame.event.get()
-        events = pygame.event.get()
+        # Inyectar consola en VM para logs
+        self.vm.console = self.console
 
-        for event in events:
-            # --- NIVEL 1: SISTEMA OPERATIVO ---
-            if event.type == pygame.QUIT:
-                running = False
+        self.editor = CodeEditor(self.hw)
+        self.editor.load_code(GAME_SOURCE)
 
-            elif event.type == pygame.KEYDOWN:
-                # --- NIVEL 2: COMANDOS GLOBALES (Hotkeys) ---
+        # Estado Inicial
+        self.current_mode = self.MODE_EDITOR
+        self.running = True
 
-                # F1: Volver al Editor (Siempre disponible)
-                if event.key == pygame.K_F1:
-                    current_mode = MODE_EDITOR
-                    pygame.display.set_caption("Spark - EDITOR MODE")
-                    # Reactivar repetición de teclas para escribir cómodo
-                    pygame.key.set_repeat(400, 30)
+        # Secuencia de Arranque (BIOS)
+        self.bios_mode = True
+        self.start_time = time.time()
+        self.console.log("Booting Kernel...", "SYSTEM")
 
-                # F5: Ejecutar Juego (Siempre disponible desde el editor)
-                elif event.key == pygame.K_F5:
-                    if current_mode == MODE_EDITOR:
-                        # 1. Validar
-                        editor.validate_syntax()
+        if not self.load_cartridge(BIOS_SOURCE):
+            self.console.log("BIOS Corrupta. Saltando.", "WARN")
+            self.bios_mode = False
+            self.switch_to_editor()
+        else:
+            pygame.key.set_repeat()  # Desactivar repeat durante BIOS
 
-                        if editor.error_msg == "OK":
-                            try:
-                                print("Compilando sistema...")
-                                # Get Code -> Lex -> Parse -> Compile
-                                code = editor.get_code()
-                                ast = Parser(Lexer(code)).parse()
-                                compiler = Compiler()
-                                compiler.compile(ast)
+    def switch_to_editor(self):
+        """Cambio de contexto centralizado al Editor"""
+        self.current_mode = self.MODE_EDITOR
+        self.bios_mode = False
+        pygame.display.set_caption("Spark - EDITOR MODE")
+        pygame.key.set_repeat(400, 30)  # Activar repetición para escribir
+        self.hw.clear_screen()  # Limpiar basura visual
 
-                                # Cargar en VM
-                                vm.code = compiler.code
-                                vm.consts = compiler.consts
-                                vm.reset()
+    def switch_to_game(self):
+        """Cambio de contexto centralizado al Juego"""
+        self.current_mode = self.MODE_GAME
+        self.bios_mode = False
+        pygame.display.set_caption("Spark - RUNNING")
+        pygame.key.set_repeat()  # Desactivar repetición para inputs de juego
 
-                                # Ejecutar Script Principal (Variables globales)
-                                while not vm.halted and vm.ip < len(vm.code):
-                                    vm.step()
-                                vm.halted = False
+    def load_cartridge(self, source_code):
+        """Compila y carga código en la VM. Retorna True/False."""
+        t0 = time.time()
+        self.console.log("--- COMPILING ---", "INFO")
 
-                                # Cambiar Modo
-                                current_mode = MODE_GAME
-                                pygame.display.set_caption("Spark - RUNNING")
-                                # Desactivar repetición de teclas para el juego (para que btn() no parpadee)
-                                pygame.key.set_repeat()
+        try:
+            tokens = Lexer(source_code)
+            ast = Parser(tokens).parse()
+            compiler = Compiler()
+            compiler.compile(ast)
 
-                            except Exception as e:
-                                print(f"Error Fatal: {e}")
-                                editor.set_error(str(e))
-                        else:
-                            print("Error de sintaxis, no se puede iniciar.")
+            self.vm.code = compiler.code
+            self.vm.consts = compiler.consts
+            self.vm.reset()
 
-                # --- NIVEL 3: DESPACHO A COMPONENTES ---
-                else:
-                    # Si no es una tecla global, se la pasamos al módulo activo
-                    if current_mode == MODE_EDITOR:
-                        editor.handle_input(event)
+            # Ejecutar inicialización (Variables globales)
+            while not self.vm.halted and self.vm.ip < len(self.vm.code):
+                self.vm.step()
 
-                    elif current_mode == MODE_GAME:
-                        # El juego usa Polling (btn), así que generalmente ignoramos eventos individuales.
-                        # Pero si agregáramos input de texto al juego (input()),
-                        # aquí se lo pasaríamos a la VM.
-                        pass
+            # Chequeo post-inicialización
+            if self.vm.runtime_error:
+                raise Exception(self.vm.runtime_error)
 
-        # --- UPDATE & DRAW LOOP ---
-        if current_mode == MODE_EDITOR:
-            editor.draw()
-            hw.flip(mode="EDITOR")
+            self.vm.halted = False
+            elapsed = round((time.time() - t0) * 1000, 2)
+            self.console.log(f"Success ({elapsed}ms)", "SUCCESS")
+            return True
 
-        elif current_mode == MODE_GAME:
-            vm.call_function("update")
-            vm.call_function("draw")
+        except Exception as e:
+            self.console.log(f"Error: {e}", "ERROR")
+            if self.current_mode == self.MODE_EDITOR:
+                self.editor.set_error(str(e))
+            return False
 
-            # --- DETECCIÓN DE CRASH ---
-            if vm.halted and vm.runtime_error:
-                print(f"Juego crasheó: {vm.runtime_error}")
+    def handle_global_input(self, event):
+        """Maneja teclas globales (F1, F3, F5, Quit)"""
+        if event.type == pygame.QUIT:
+            self.running = False
+            return True
 
-                # Volver al editor
-                current_mode = MODE_EDITOR
-                pygame.display.set_caption("Spark - EDITOR (CRASHED)")
-                pygame.key.set_repeat(400, 30)
+        if event.type == pygame.KEYDOWN:
+            # F1: Editor
+            if event.key == pygame.K_F1:
+                self.switch_to_editor()
+                self.console.log("Switched to Editor", "INFO")
+                return True
 
-                # Mostrar el error en la barra roja del editor
-                editor.set_error(vm.runtime_error)
+            # F3: Consola
+            if event.key == pygame.K_F3:
+                self.console.toggle()
+                return True
 
-            hw.flip(mode="GAME")
+            # F5: Ejecutar
+            if event.key == pygame.K_F5:
+                if self.current_mode == self.MODE_EDITOR:
+                    self.editor.validate_syntax()
+                    if self.editor.error_msg == "OK":
+                        if self.load_cartridge(self.editor.get_code()):
+                            self.switch_to_game()
+                    else:
+                        self.console.log("Sintaxis Inválida", "WARN")
+                return True
+
+        return False
+
+    def check_vm_crash(self, context="GAME"):
+        """Verifica si la VM murió y maneja el retorno al editor"""
+        if self.vm.halted and self.vm.runtime_error:
+            self.console.log(f"{context} CRASH: {self.vm.runtime_error}", "ERROR")
+            self.switch_to_editor()
+            self.editor.set_error(self.vm.runtime_error)
+            self.console.visible = True
+
+    def update(self):
+        """Lógica de actualización por frame"""
+
+        # 1. BIOS Update
+        if self.bios_mode:
+            self.vm.call_function("update")
+            self.check_vm_crash("BIOS")
+
+            if time.time() - self.start_time > 8:
+                self.switch_to_editor()
+                self.console.log("System Ready.", "INFO")
+
+        # 2. GAME Update
+        elif self.current_mode == self.MODE_GAME:
+            self.hw.handle_input()  # Polling de botones
+            self.vm.call_function("update")
+            self.check_vm_crash("GAME")
+
+        # 3. EDITOR Update (Nada por ahora)
+        pass
+
+    def draw(self):
+        """Pipeline Gráfico Unificado"""
+
+        # 1. Dibujar Capa Base (Juego/Bios o Editor)
+        if self.bios_mode or self.current_mode == self.MODE_GAME:
+            self.vm.call_function("draw")
+            # Escalar 160x160 -> Ventana
+            pygame.transform.scale(self.hw.screen, self.hw.window.get_size(), self.hw.window)
+
+        elif self.current_mode == self.MODE_EDITOR:
+            self.editor.draw()
+            # Escalar 320x320 -> Ventana
+            pygame.transform.scale(self.hw.editor_screen, self.hw.window.get_size(), self.hw.window)
+
+        # 2. Dibujar Overlay (Consola)
+        if self.console.visible:
+            # Dibujar consola sobre su canvas transparente
+            # Limpiamos el canvas de la consola primero si es necesario,
+            # pero console.draw ya maneja su fondo.
+            self.console.draw()
+
+            # Pegar consola sobre la ventana
+            overlay = pygame.transform.scale(self.hw.editor_screen, self.hw.window.get_size())
+            # Usamos colorkey negro para transparencia si el fondo no es sólido
+            # (Depende de tu implementación de SystemConsole, aquí asumimos overlay sólido o alpha blit)
+            self.hw.window.blit(overlay, (0, 0))
+
+        # 3. Flip Final
+        pygame.display.flip()
+        self.hw.clock.tick(60)
+
+    def run(self):
+        """Bucle Principal (Limpio y sin indentación excesiva)"""
+        while self.running:
+            # A. INPUT ROUTER
+            events = pygame.event.get()
+            for event in events:
+                if self.handle_global_input(event):
+                    continue  # Evento consumido globalmente
+
+                # Despacho local
+                if self.current_mode == self.MODE_EDITOR:
+                    self.editor.handle_input(event)
+
+            # B. LOGIC & RENDER
+            self.update()
+            self.draw()
 
 
+# ==========================================
+# 3. ENTRY POINT
+# ==========================================
 if __name__ == "__main__":
-    main()
+    sys = SparkSystem()
+    sys.run()
+    pygame.quit()

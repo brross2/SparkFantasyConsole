@@ -14,6 +14,7 @@ SYS_SPECS = {
     "print":    {"min_args": 4, "snippet": '("TEXT", x, y, 7)', "args": ["str", "int", "int", "color", "int"]},
     "cls":      {"min_args": 0, "snippet": "()", "args": []},
     "sfx":      {"min_args": 1, "snippet": "(0)", "args": ["int"]},
+    "log":      {"min_args": 1, "snippet": '("msg")', "args": ["any"]},
 
     # Control structures
     "function": {"min_args": 0, "snippet": " name()\n    \nend", "args": []},

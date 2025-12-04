@@ -156,10 +156,10 @@ class Parser:
         return node
 
     def parse_relational(self):
-        node = self.parse_term()
-        while self.peek().type == "OP" and self.peek().value in (">", "<", "<=", ">="):
+        node = self.parse_additive() # <--- OJO: Llama a Additive
+        while self.peek().type == "OP" and self.peek().value in ("<", ">", "<=", ">="):
             op = self.next().value
-            right = self.parse_term()
+            right = self.parse_additive()
             node = BinaryOp(op, node, right)
         return node
 
@@ -171,13 +171,30 @@ class Parser:
             node = BinaryOp(op, node, right)
         return node
 
-    def parse_factor(self):
-        node = self.parse_unary()
-        while self.peek().type == "OP" and self.peek().value in ("*", "/", "%"):
+        # 3. NIVEL ADITIVO (+, -) -> Aquí se resuelve y-10
+    def parse_additive(self):
+        node = self.parse_multiplicative()  # <--- OJO: Llama a Multiplicative
+        while self.peek().type == "OP" and self.peek().value in ("+", "-"):
             op = self.next().value
-            right = self.parse_unary()
+            right = self.parse_multiplicative()
             node = BinaryOp(op, node, right)
         return node
+
+        # 4. NIVEL MULTIPLICATIVO (*, /, %)
+    def parse_multiplicative(self):
+        node = self.parse_factor()  # <--- OJO: Llama a Factor
+        while self.peek().type == "OP" and self.peek().value in ("*", "/", "%"):
+            op = self.next().value
+            right = self.parse_factor()
+            node = BinaryOp(op, node, right)
+        return node
+
+    def parse_factor(self):
+        if self.peek().type == "OP" and self.peek().value == "-":
+            op = self.next().value
+            right = self.parse_factor()
+            return UnaryOp(op, right)
+        return self.parse_primary()
 
     def parse_unary(self):
         if self.peek().type == "OP" and self.peek().value in ("+", "-"):
@@ -198,28 +215,28 @@ class Parser:
             return String(t.value)
 
         if t.type == "IDENT":
-            # Aquí manejamos variables Y llamadas a funciones dentro de expresiones
             name = self.next().value
+            # Llamada a función: foo(x)
             if self.peek().type == "LPAREN":
                 return self.parse_call_suffix(name)
+            # Variable simple: x
             return Var(name)
 
         if t.type == "LPAREN":
             self.next()
-            node = self.parse_expression()
+            node = self.parse_expression()  # Reinicia la jerarquía
             self.expect("RPAREN")
             return node
 
-        raise SyntaxError(f"Unexpected token in primary: {t.type}({t.value}) at line {t.line} col {t.col}")
+        raise SyntaxError(f"Token inesperado en expresión: {t.type}({t.value}) linea {t.line}")
 
     def parse_call_suffix(self, name):
-        """Helper para parsear argumentos de función: (arg1, arg2)"""
         self.expect("LPAREN")
         args = []
         if self.peek().type != "RPAREN":
-            args.append(self.parse_expression())
+            args.append(self.parse_expression()) # Argumento 1
             while self.peek().type == "COMMA":
                 self.next()
-                args.append(self.parse_expression())
+                args.append(self.parse_expression()) # Argumentos N
         self.expect("RPAREN")
         return Call(name, args)

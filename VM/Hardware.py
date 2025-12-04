@@ -31,17 +31,14 @@ class SparkHardware:
         # 3. Paleta de Colores (32 colores fijos)
         # Usamos una lista de tuplas (R, G, B)
         self.palette = [
-            # --- 0-15: PICO-8 Standard ---
             (0, 0, 0), (29, 43, 83), (126, 37, 83), (0, 135, 81),
             (171, 82, 54), (95, 87, 79), (194, 195, 199), (255, 241, 232),
             (255, 0, 77), (255, 163, 0), (255, 236, 39), (0, 228, 54),
             (41, 173, 255), (131, 118, 156), (255, 119, 168), (255, 204, 170),
-
-            # --- 16-31: SPARK Extended (Pasteles, Sombras y Neones) ---
-            (41, 36, 33), (8, 10, 20), (60, 10, 20), (10, 60, 20),  # Sombras profundas
-            (100, 40, 20), (50, 40, 40), (120, 120, 130), (255, 255, 255),  # Grises/Blancos
-            (255, 100, 100), (255, 200, 100), (240, 255, 150), (150, 255, 150),  # Pasteles
-            (150, 240, 255), (180, 150, 255), (255, 150, 200), (200, 150, 100)  # Pasteles/Piel
+            (41, 36, 33), (8, 10, 20), (60, 10, 20), (10, 60, 20),
+            (100, 40, 20), (50, 40, 40), (120, 120, 130), (255, 255, 255),
+            (255, 100, 100), (255, 200, 100), (240, 255, 150), (150, 255, 150),
+            (150, 240, 255), (180, 150, 255), (255, 150, 200), (200, 150, 100)
         ]
 
         self.spritesheet = pygame.Surface((128,128))
@@ -55,11 +52,25 @@ class SparkHardware:
 
     def pset(self, x, y, color_idx):
         """Pone un pixel en la VRAM (Sistema de Coordenadas 160x160)"""
-        # Protecciones de hardware (Clipping)
-        if 0 <= x < self.WIDTH and 0 <= y < self.HEIGHT:
-            # Aseguramos que el índice de color sea válido (0-31)
-            c = self.palette[int(color_idx) % len(self.palette)]
-            self.screen.set_at((int(x), int(y)), c)
+        try:
+            # 1. SANITIZACIÓN: Convertir a Enteros (Quitar decimales)
+            # Esto arregla el problema de "ry + j" siendo float
+            ix = int(x)
+            iy = int(y)
+            ic = int(color_idx)
+
+            # 2. Protecciones de hardware (Clipping)
+            if 0 <= ix < self.WIDTH and 0 <= iy < self.HEIGHT:
+                # Aseguramos que el índice de color sea válido usando módulo
+                safe_idx = ic % len(self.palette)
+                c = self.palette[safe_idx]
+
+                self.screen.set_at((ix, iy), c)
+        except Exception as e:
+            # Si algo falla (ej: valores nulos), fallamos silenciosamente
+            # para no romper el juego por un pixel malo.
+            print(f"HARDWARE ERROR (pset): {e} | Val: {x}, {y}, {color_idx}")
+            pass
 
     def flip(self):
         """Renderiza la VRAM a la ventana escalada"""
@@ -115,16 +126,18 @@ class SparkHardware:
 
     def spr(self, sprite_id, x, y):
         """Dibuja el sprite ID (0-255) en la posición (x, y)"""
-        # Aseguramos que el ID sea válido (0-255)
-        sid = int(sprite_id) % 256
+        try:
+            sid = int(sprite_id % 256)
+            ix = int(x)
+            iy = int(y)
 
-        # Calculamos dónde vive ese sprite dentro de la hoja de 128x128
-        sheet_x = (sid % 16) * 8
-        sheet_y = (sid // 16) * 8
+            sheet_x = (sid % 16) * 8
+            sheet_y = (sid // 16) * 8
 
-        # Copiamos (Blit) ese trocito de 8x8 a la pantalla
-        # area=(rect) define qué pedazo copiar
-        self.screen.blit(self.spritesheet, (x, y), (sheet_x, sheet_y, 8, 8))
+            self.screen.blit(self.spritesheet, (ix, iy), (sheet_x, sheet_y, 8, 8))
+        except Exception as e:
+            print(f"HARDWARE ERROR (spr): {e} | Val:  {x}, {y}")
+            pass
 
         # En VM/Hardware.py -> SparkHardware
 
@@ -164,14 +177,22 @@ class SparkHardware:
                                 dest_surf.set_at((px, py), color)
             cursor_x += spacing
 
-    def flip(self, mode="GAME"):
-        """Renderiza la VRAM correcta a la ventana"""
+    def flip(self, mode="GAME", overlay_callback=None):
+        """
+        Renderiza la VRAM a la ventana.
+        overlay_callback: Función para dibujar UI encima (Consola) antes del flip.
+        """
+        # 1. Escalar la capa base (Juego o Editor) a la ventana física
         if mode == "GAME":
-            # Escalar 160 -> 640 (x4)
             pygame.transform.scale(self.screen, self.window.get_size(), self.window)
         else:
-            # Escalar 320 -> 640 (x2) - Se ve más nítido
             pygame.transform.scale(self.editor_screen, self.window.get_size(), self.window)
 
+        # 2. Dibujar Overlay (Consola) directamente en la ventana física
+        # Esto asegura que la consola siempre se vea nítida y encima de todo
+        if overlay_callback:
+            overlay_callback(self.window)  # Le pasamos la ventana real
+
+        # 3. Refrescar
         pygame.display.flip()
         self.clock.tick(60)

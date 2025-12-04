@@ -36,6 +36,7 @@ SYS_FUNCTIONS = {
     "map": 3,
     "btn": 4,
     "cls": 5,
-    "print": 6
+    "print": 6,
+    "log": 7
 }
 

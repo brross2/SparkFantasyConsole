@@ -15,9 +15,9 @@ class SparkVM:
         self.globals = {}
         self.call_stack = []
         self.halted = False
-        self.runtime_error = None
 
-        # Debugging / Profiling
+        # Estado de Error
+        self.runtime_error = None
         self.cycle_count = 0
 
     def reset(self):
@@ -31,108 +31,111 @@ class SparkVM:
         """Detiene la VM y registra el error"""
         self.halted = True
         self.runtime_error = f"RUNTIME ERR: {msg}"
-        print(self.runtime_error)  # Para debug en consola
-        return False  # Señal para detener bucles
+        # print(self.runtime_error) # Descomentar para debug en consola
+        return False
 
     def _check_type(self, value, expected_type):
-        """Valida un valor individual contra un tipo esperado"""
-        if expected_type == "int" or expected_type == "float" or expected_type == "btn_id":
-            # Aceptamos int y float como números
+        """Valida tipos en tiempo de ejecución"""
+        if expected_type in ["int", "float", "btn_id", "color"]:
             return isinstance(value, (int, float)) and not isinstance(value, bool)
-        elif expected_type == "color":
-            return isinstance(value, (int, float))
         elif expected_type == "str":
             return isinstance(value, str)
-        elif expected_type == "any":
-            return True
-        return True  # Si el tipo no está definido, pasamos
+        return True
 
     def step(self, max_cycles=60):
         cycles_left = max_cycles
+        while cycles_left > 0 and not self.halted:
+            if self.ip >= len(self.code):
+                self.halted = True
+                break
 
-        while cycles_left > 0 and not self.halted and self.ip < len(self.code):
-            # Fetch
-            op = self.code[self.ip]
-            self.ip += 1
+            try:
+                # --- CORRECCIÓN AQUÍ ---
+                # Casteamos self.ip a int por seguridad
+                op = self.code[int(self.ip)]
+                self.ip += 1
+                self._exec_opcode(op)
 
-            # Decode & Execute
-            self._exec_opcode(op)
+                cycles_left -= 1
+                self.cycle_count += 1
 
-            # Accounting
-            cycles_left -= 1
-            self.cycle_count += 1
+            except IndexError:
+                self._error("Segmentation Fault (Read beyond end of code)")
+                break
+            except Exception as e:
+                self._error(f"CPU Exception: {e}")
+                break
 
     def _exec_opcode(self, op):
-        """Dispatcher gigante: El cerebro de la CPU"""
-        if self.halted:
-            return
+        if self.halted: return
 
-        # --- A. Datos ---
+        # --- A. DATOS ---
         if op == LOAD_CONST:
-            idx = self.code[self.ip]
+            idx = self.code[self.ip];
             self.ip += 1
             self.stack.append(self.consts[idx])
 
         elif op == LOAD_VAR:
-            idx = self.code[self.ip]
+            idx = self.code[self.ip];
             self.ip += 1
             name = self.consts[idx]
             val = self.globals.get(name, 0.0)
             self.stack.append(val)
 
         elif op == STORE_VAR:
-            idx = self.code[self.ip]
+            idx = self.code[self.ip];
             self.ip += 1
             name = self.consts[idx]
+            if not self.stack: return self._error("Stack Underflow (STORE)")
             val = self.stack.pop()
             self.globals[name] = val
 
         elif op == POP:
             if self.stack: self.stack.pop()
 
-            # --- B. ARITMÉTICA SEGURA (BLINDADA) ---
-            elif op in [ADD, SUB, MUL, DIV, MOD]:
-                if len(self.stack) < 2: return self._error("Stack Underflow")
-                b = self.stack.pop()
-                a = self.stack.pop()
+        # --- B. ARITMÉTICA (CORREGIDA) ---
+        # ¡IMPORTANTE! SUB (11) y ADD (10) deben estar en esta lista
+        elif op in [ADD, SUB, MUL, DIV, MOD]:
+            if len(self.stack) < 2: return self._error(f"Stack Underflow ({op})")
+            b = self.stack.pop()
+            a = self.stack.pop()
 
-                # 1. Chequeo de Tipos Numéricos
-                if not (isinstance(a, (int, float)) and isinstance(b, (int, float))):
-                    # Excepción: Concatenación de strings con ADD (+)
-                    if op == ADD and (isinstance(a, str) or isinstance(b, str)):
-                        self.stack.append(str(a) + str(b))
-                        return
-                    else:
-                        return self._error(f"Math Error: Cannot {op} {type(a)} and {type(b)}")
+            # Chequeo de Tipos
+            are_numbers = isinstance(a, (int, float)) and isinstance(b, (int, float))
 
-                # 2. Ejecución Segura
+            if not are_numbers:
+                # Excepción: Concatenar strings con '+'
                 if op == ADD:
-                    self.stack.append(a + b)
-                elif op == SUB:
-                    self.stack.append(a - b)
-                elif op == MUL:
-                    self.stack.append(a * b)
-                elif op == DIV:
-                    if b == 0: return self._error("Division by Zero")
-                    self.stack.append(a / b)
-                elif op == MOD:
-                    if b == 0: return self._error("Modulo by Zero")
-                    self.stack.append(a % b)
+                    self.stack.append(str(a) + str(b))
+                    return
+                else:
+                    return self._error(f"Math Error: Cannot op {op} on {type(a)} and {type(b)}")
+
+            # Ejecución
+            if op == ADD:
+                self.stack.append(a + b)
+            elif op == SUB:
+                self.stack.append(a - b)
+            elif op == MUL:
+                self.stack.append(a * b)
+            elif op == DIV:
+                if b == 0: return self._error("Division by Zero")
+                self.stack.append(a / b)
+            elif op == MOD:
+                if b == 0: return self._error("Modulo by Zero")
+                self.stack.append(a % b)
 
         elif op == NEG:
-            if not self.stack: return self._error("Stack Underflow")
+            if not self.stack: return self._error("Stack Underflow (NEG)")
             val = self.stack.pop()
             if not isinstance(val, (int, float)): return self._error("Cannot negate non-number")
             self.stack.append(-val)
 
-        # --- C. COMPARACIONES (Seguras) ---
+        # --- C. COMPARACIONES ---
         elif op in [EQ, NEQ, LT, LTE, GT, GTE]:
-            if len(self.stack) < 2: return self._error("Stack Underflow")
+            if len(self.stack) < 2: return self._error("Stack Underflow (COMP)")
             b = self.stack.pop()
             a = self.stack.pop()
-
-            # Python maneja comparaciones de tipos mixtos bien (False),
-            # pero < > pueden crashear entre str e int.
             try:
                 if op == EQ:
                     self.stack.append(a == b)
@@ -149,41 +152,44 @@ class SparkVM:
             except TypeError:
                 return self._error(f"Cannot compare {type(a)} and {type(b)}")
 
-        # --- D. Saltos ---
+        # --- D. SALTOS ---
         elif op == JMP:
             target = self.code[self.ip]
             self.ip += 1
-            self.ip = target
+            self.ip = int(target)
 
         elif op == JMP_IF_FALSE:
             target = self.code[self.ip]
             self.ip += 1
+            if not self.stack: return self._error("Stack Underflow (JMP_IF)")
             val = self.stack.pop()
-            if not val:
-                self.ip = target
+            if not val: self.ip = int(target)
 
-        # --- E. Control ---
+        # --- E. CONTROL ---
         elif op == HALT:
             self.halted = True
-
 
         elif op == CALL:
             argc = self.code[self.ip];
             self.ip += 1
-            if len(self.stack) < argc + 1: return self._error("Stack Underflow CALL")
-            func_idx = -1 - argc
-            func_target = self.stack[func_idx]
+            if len(self.stack) < argc + 1: return self._error("Stack Underflow (CALL)")
 
+            # 1. Extraer argumentos (sin perderlos)
             args_temp = []
             for _ in range(argc): args_temp.append(self.stack.pop())
 
-            self.stack.pop()
+            # 2. Extraer destino
+            func_target = self.stack.pop()
 
+            # 3. Devolver argumentos al stack
             for arg in reversed(args_temp): self.stack.append(arg)
 
             target_addr = None
-            if isinstance(func_target, int):
-                target_addr = func_target
+
+            # --- CORRECCIÓN AQUÍ ---
+            # Aceptamos int Y float para la dirección
+            if isinstance(func_target, (int, float)):
+                target_addr = int(func_target)  # Forzamos entero
             elif isinstance(func_target, str):
                 target_addr = self.globals.get(func_target)
 
@@ -191,84 +197,78 @@ class SparkVM:
                 self.call_stack.append(self.ip)
                 self.ip = target_addr
             else:
+                # Si falla, limpiamos los argumentos para no corromper la pila
                 for _ in range(argc): self.stack.pop()
-                # Opcional: self._error(f"Function '{func_target}' not found")
+                # Opcional: Avisar si no es una función del sistema
+                # print(f"Warning: Function {func_target} not found/invalid")
 
+        # --- F. SYSCALLS ---
         elif op == SYS:
             sys_id = self.code[self.ip];
             self.ip += 1
             argc = self.code[self.ip];
             self.ip += 1
 
-            # 1. Recuperar argumentos
-            if len(self.stack) < argc: return self._error(f"Stack Underflow SYS {sys_id}")
+            if len(self.stack) < argc: return self._error(f"Stack Underflow (SYS {sys_id})")
 
             args = []
-            for _ in range(argc):
-                args.insert(0, self.stack.pop())
+            for _ in range(argc): args.insert(0, self.stack.pop())
 
-            # 2. Identificar función y Validar Tipos
+            # Identificar nombre para validación
             func_name = None
-            func_spec = None
-
-            # Buscar nombre por ID (Inverso del diccionario SYS_FUNCTIONS en Opcodes)
-            # Esto es lento en cada frame, idealmente tendríamos un mapa ID->Spec precalculado.
-            # Pero para empezar está bien.
             for name, fid in SYS_FUNCTIONS.items():
-                if fid == sys_id:
-                    func_name = name
-                    break
+                if fid == sys_id: func_name = name; break
 
+            # Validar Tipos
             if func_name and func_name in SYS_SPECS:
                 specs = SYS_SPECS[func_name]
-                expected_types = specs.get("args", [])
-
-                # Chequeo de cantidad (Runtime check, por si el compilador falló o se hizo manual)
-                if len(args) < len(expected_types):
-                    # Permitimos args opcionales si la logica interna lo soporta,
-                    # pero validamos los que hay.
-                    pass
-
-                    # Chequeo de Tipos
+                expected = specs.get("args", [])
                 for i, val in enumerate(args):
-                    if i < len(expected_types):
-                        req_type = expected_types[i]
-                        if not self._check_type(val, req_type):
+                    if i < len(expected):
+                        if not self._check_type(val, expected[i]):
                             return self._error(
-                                f"'{func_name}' arg {i + 1}: expected {req_type}, got {type(val).__name__}")
+                                f"'{func_name}' arg {i + 1}: expected {expected[i]}, got {type(val).__name__}")
 
-            # 3. Ejecución (Solo si self.halted es False)
-            if not self.halted:
-                if self.hardware:
-                    if sys_id == 0:  # pset
-                        if len(args) >= 3: self.hardware.pset(args[0], args[1], args[2])
-                        self.stack.append(0)
-                    elif sys_id == 2:  # spr
-                        if len(args) >= 3: self.hardware.spr(args[0], args[1], args[2])
-                        self.stack.append(0)
-                    elif sys_id == 4:  # btn
-                        val = 0
-                        if len(args) >= 1: val = 1 if self.hardware.btn(int(args[0])) else 0
-                        self.stack.append(val)
-                    elif sys_id == 5:  # cls
-                        self.hardware.clear_screen()
-                        self.stack.append(0)
-                    elif sys_id == 6:  # print
-                        if len(args) >= 4:
-                            is_small = False
-                            if len(args) >= 5 and args[4] == 1: is_small = True
-                            self.hardware.print_text(str(args[0]), args[1], args[2], args[3], is_small)
-                        self.stack.append(0)
-                    else:
-                        self.stack.append(0)
+            # Ejecutar
+            if not self.halted and self.hardware:
+                if sys_id == 0:  # pset
+                    if len(args) >= 3: self.hardware.pset(args[0], args[1], args[2])
+                    self.stack.append(0)
+                elif sys_id == 2:  # spr
+                    if len(args) >= 3: self.hardware.spr(args[0], args[1], args[2])
+                    self.stack.append(0)
+                elif sys_id == 4:  # btn
+                    val = 0
+                    if len(args) >= 1: val = 1 if self.hardware.btn(int(args[0])) else 0
+                    self.stack.append(val)
+                elif sys_id == 5:  # cls
+                    self.hardware.clear_screen()
+                    self.stack.append(0)
+                elif sys_id == 6:  # print
+                    if len(args) >= 4:
+                        is_small = False
+                        if len(args) >= 5 and args[4] == 1: is_small = True
+                        self.hardware.print_text(str(args[0]), args[1], args[2], args[3], is_small)
+                    self.stack.append(0)
+                elif sys_id == 7:  # log
+                    if len(args) >= 1:
+                        msg = str(args[0])
+                        # Enviar a la consola del sistema (si existe)
+                        if hasattr(self, 'console') and self.console:
+                            self.console.log(msg, "USER")
+                        else:
+                            print(f"[USER LOG] {msg}")  # Fallback
+                    self.stack.append(0)
                 else:
                     self.stack.append(0)
+            else:
+                self.stack.append(0)
 
         elif op == RET:
             if self.call_stack:
                 self.ip = self.call_stack.pop()
             else:
-                self.halted = True  # Fin del programa principal
+                self.halted = True
 
         else:
             return self._error(f"Unknown Opcode {op}")
@@ -276,14 +276,13 @@ class SparkVM:
     def call_function(self, func_name):
         if func_name in self.globals:
             addr = self.globals[func_name]
-            initial_stack_size = len(self.stack)
-
+            initial_stack = len(self.stack)
             self.call_stack.append(len(self.code))
-            self.ip = addr
+            self.ip = int(addr)
+            self.halted = False
 
             while self.ip < len(self.code) and len(self.call_stack) > 0 and not self.halted:
                 self.step()
 
-            # Limpiador de basura del main loop
-            if len(self.stack) > initial_stack_size:
+            if len(self.stack) > initial_stack:
                 self.stack.pop()

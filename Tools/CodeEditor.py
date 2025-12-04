@@ -1,14 +1,16 @@
 import pygame
 import re
+
+from Tools.Themes import THEMES
 from VM.Lexer import KEYWORDS
 from VM.SystemSpecs import *
-from Tools.Themes import *
+
 
 class CodeEditor:
     def __init__(self, hardware):
         self.hw = hardware
         self.lines = [""]
-        self.cx = 0
+        self.cx = 0;
         self.cy = 0
         self.scroll_y = 0
 
@@ -57,7 +59,8 @@ class CodeEditor:
         self.error_line = -1
 
     def validate_syntax(self):
-        # Aquí iría la llamada a tu Parser (resumida para este archivo)
+        # El parser es llamado externamente por main.py con F5,
+        # pero aquí reseteamos el estado visual
         self.error_line = -1
         self.error_msg = "OK"
 
@@ -84,16 +87,16 @@ class CodeEditor:
         if self.history_idx > 0:
             self.history_idx -= 1
             s = self.history[self.history_idx]
-            self.lines = list(s["lines"])
-            self.cx = s["cx"]
+            self.lines = list(s["lines"]);
+            self.cx = s["cx"];
             self.cy = s["cy"]
 
     def redo(self):
         if self.history_idx < len(self.history) - 1:
             self.history_idx += 1
             s = self.history[self.history_idx]
-            self.lines = list(s["lines"])
-            self.cx = s["cx"]
+            self.lines = list(s["lines"]);
+            self.cx = s["cx"];
             self.cy = s["cy"]
 
     def get_sorted_selection(self):
@@ -105,7 +108,7 @@ class CodeEditor:
         start, end = self.get_sorted_selection()
         if not start: return False
         self.save_history()
-        sx, sy = start
+        sx, sy = start;
         ex, ey = end
         if sy == ey:
             self.lines[sy] = self.lines[sy][:sx] + self.lines[sy][ex:]
@@ -119,7 +122,7 @@ class CodeEditor:
     def copy(self):
         start, end = self.get_sorted_selection()
         if not start: return
-        sx, sy = start
+        sx, sy = start;
         ex, ey = end
         if sy == ey:
             text = self.lines[sy][sx:ex]
@@ -131,8 +134,7 @@ class CodeEditor:
         pygame.scrap.put(pygame.SCRAP_TEXT, text.encode("utf-8"))
 
     def cut(self):
-        self.copy()
-        self.delete_selection()
+        self.copy(); self.delete_selection()
 
     def paste(self):
         content = pygame.scrap.get(pygame.SCRAP_TEXT)
@@ -140,13 +142,12 @@ class CodeEditor:
         text = content.decode("utf-8").replace("\0", "")
         if self.sel_start: self.delete_selection()
         self.save_history()
-        # (Lógica simple de pegado)
         for char in text:
             if char == '\n':
                 line = self.lines[self.cy]
                 self.lines.insert(self.cy + 1, line[self.cx:])
                 self.lines[self.cy] = line[:self.cx]
-                self.cy += 1
+                self.cy += 1;
                 self.cx = 0
             else:
                 line = self.lines[self.cy]
@@ -183,10 +184,10 @@ class CodeEditor:
             if "args" in specs and arg_idx < len(specs["args"]):
                 arg_type = specs["args"][arg_idx]
                 if arg_type == "color":
-                    self.suggest_list = COLOR_SUGGESTIONS
+                    self.suggest_list = COLOR_SUGGESTIONS;
                     should_open = True
                 elif arg_type == "btn_id":
-                    self.suggest_list = BUTTON_SUGGESTIONS
+                    self.suggest_list = BUTTON_SUGGESTIONS;
                     should_open = True
 
         if should_open:
@@ -214,53 +215,51 @@ class CodeEditor:
         if match: return match.group(1)
         return None
 
-    # --- INPUT HANDLER REPARADO ---
+    # --- INPUT HANDLER UNIFICADO ---
     def handle_input(self, event):
         mods = pygame.key.get_mods()
         ctrl = mods & pygame.KMOD_CTRL
         shift = mods & pygame.KMOD_SHIFT
 
-        # 1. MOUSE (Corregido)
+        # 1. MOUSE (Con Escala Dinámica y Selección)
         if event.type == pygame.MOUSEBUTTONDOWN:
             mx, my = pygame.mouse.get_pos()
-            editor_scale = 2
-            ex = mx // editor_scale
-            ey = my // editor_scale
+            win_w, win_h = self.hw.window.get_size()
+            if win_w == 0 or win_h == 0: return
 
-            clicked_row = (ey // self.line_h)
+            scale_x = win_w / self.hw.ED_WIDTH
+            scale_y = win_h / self.hw.ED_HEIGHT
+
+            ex = mx / scale_x;
+            ey = my / scale_y
+            clicked_row = int(ey // self.line_h)
 
             if clicked_row < self.max_lines_visible:
+                old_sel = (self.cx, self.cy)  # Posición anterior
+
                 target_y = self.scroll_y + clicked_row
                 if target_y < len(self.lines):
                     self.cy = target_y
                 else:
                     self.cy = len(self.lines) - 1
 
-                rel_x = ex - self.gutter_w
-                if rel_x < 0: rel_x = 0
-                target_x = round(rel_x / 5)
-                current_len = len(self.lines[self.cy])
+                rel_x = ex - (self.gutter_w + 4)
+                target_x = 0 if rel_x < 0 else int(round(rel_x / 5))
+                self.cx = min(len(self.lines[self.cy]), target_x)
 
-                # Guardar posición vieja para selección
-                old_sel = (self.cx, self.cy)
-
-                # Actualizar cursor
-                self.cx = min(current_len, target_x)
-
-                # Manejo de Selección con Mouse
                 if shift:
-                    if not self.sel_start: self.sel_start = old_sel  # Empezar desde donde estábamos
+                    if not self.sel_start: self.sel_start = old_sel
                 else:
                     self.sel_start = None
 
         elif event.type == pygame.KEYDOWN:
-            # 2. MENU INTELLISENSE
+            # 2. INTELLISENSE NAV
             if self.suggest_active:
                 if event.key == pygame.K_UP:
-                    self.suggest_idx = max(0, self.suggest_idx - 1)
+                    self.suggest_idx = max(0, self.suggest_idx - 1);
                     return
                 elif event.key == pygame.K_DOWN:
-                    self.suggest_idx = min(len(self.suggest_list) - 1, self.suggest_idx + 1)
+                    self.suggest_idx = min(len(self.suggest_list) - 1, self.suggest_idx + 1);
                     return
                 elif event.key in [pygame.K_RETURN, pygame.K_TAB]:
                     item = self.suggest_list[self.suggest_idx]
@@ -268,25 +267,25 @@ class CodeEditor:
                     line = self.lines[self.cy]
                     self.lines[self.cy] = line[:self.cx] + val + line[self.cx:]
                     self.cx += len(val)
-                    self.suggest_active = False
+                    self.suggest_active = False;
                     self.save_history()
                     return
                 elif event.key == pygame.K_ESCAPE:
-                    self.suggest_active = False
+                    self.suggest_active = False;
                     return
 
-            # 3. TRIGGER MANUAL (CTRL+SPACE)
+            # 3. TRIGGER MANUAL
             if event.key == pygame.K_SPACE and ctrl:
-                self.trigger_suggestion()
+                self.trigger_suggestion();
                 return
 
-            # 4. TRIGGERS AUTOMÁTICOS (Coma y Paréntesis)
+            # 4. TRIGGERS AUTOMÁTICOS
             if event.unicode == ",":
                 self.save_history()
                 line = self.lines[self.cy]
                 self.lines[self.cy] = line[:self.cx] + "," + line[self.cx:]
                 self.cx += 1
-                self.trigger_suggestion()
+                self.trigger_suggestion();
                 return
 
             if event.unicode == "(":
@@ -294,10 +293,10 @@ class CodeEditor:
                 line = self.lines[self.cy]
                 self.lines[self.cy] = line[:self.cx] + "(" + line[self.cx:]
                 self.cx += 1
-                self.trigger_suggestion()
+                self.trigger_suggestion();
                 return
 
-            # 5. COMANDOS EDITORIALES (Ctrl+C, etc)
+            # 5. COMANDOS (Ctrl)
             if ctrl:
                 if event.key == pygame.K_c:
                     self.copy()
@@ -315,17 +314,13 @@ class CodeEditor:
             old_cx, old_cy = self.cx, self.cy
             moved = False
             if event.key == pygame.K_UP:
-                self.cy = max(0, self.cy - 1)
-                moved = True
+                self.cy = max(0, self.cy - 1); moved = True
             elif event.key == pygame.K_DOWN:
-                self.cy = min(len(self.lines) - 1, self.cy + 1)
-                moved = True
+                self.cy = min(len(self.lines) - 1, self.cy + 1); moved = True
             elif event.key == pygame.K_LEFT:
-                self.cx = max(0, self.cx - 1)
-                moved = True
+                self.cx = max(0, self.cx - 1); moved = True
             elif event.key == pygame.K_RIGHT:
-                self.cx = min(len(self.lines[self.cy]), self.cx + 1)
-                moved = True
+                self.cx = min(len(self.lines[self.cy]), self.cx + 1); moved = True
 
             if moved:
                 if shift:
@@ -333,7 +328,7 @@ class CodeEditor:
                 else:
                     self.sel_start = None
 
-            # 7. TECLAS ESPECIALES
+            # 7. EDICIÓN
             elif event.key == pygame.K_BACKSPACE:
                 if self.sel_start:
                     self.delete_selection()
@@ -345,14 +340,15 @@ class CodeEditor:
                         self.cx -= 1
                     elif self.cy > 0:
                         curr = self.lines.pop(self.cy)
-                        self.cy -= 1
+                        self.cy -= 1;
                         self.cx = len(self.lines[self.cy])
                         self.lines[self.cy] += curr
 
             elif event.key == pygame.K_RETURN:
                 if self.sel_start: self.delete_selection()
                 self.save_history()
-                # Auto Indent Logic
+
+                # Auto Indent + Block Close
                 curr = self.lines[self.cy]
                 base_ind = " " * self.get_indentation(curr)
                 stripped = curr.rstrip()
@@ -360,16 +356,17 @@ class CodeEditor:
                 if any(stripped.endswith(t) for t in ["then", "do", "else", ":"]): opens = True
                 if "function" in stripped and not stripped.endswith("end"): opens = True
 
-                left = curr[:self.cx]
+                left = curr[:self.cx];
                 right = curr[self.cx:]
                 self.lines[self.cy] = left
                 new_ind = base_ind + ("    " if opens else "")
                 self.lines.insert(self.cy + 1, new_ind + right)
                 if opens and right.strip() == "":
                     self.lines.insert(self.cy + 2, base_ind + "end")
-                self.cy += 1
+                self.cy += 1;
                 self.cx = len(new_ind)
 
+            # 8. TAB (Snippets)
             elif event.key == pygame.K_TAB:
                 if self.sel_start: self.delete_selection()
                 self.save_history()
@@ -387,7 +384,7 @@ class CodeEditor:
             elif event.key == pygame.K_F2:
                 self.toggle_theme()
 
-            # 8. CARACTERES NORMALES
+            # 9. ESCRITURA
             elif event.unicode and event.unicode.isprintable():
                 if self.sel_start: self.delete_selection()
                 self.save_history()
@@ -403,29 +400,44 @@ class CodeEditor:
                 self.scroll_y = self.cy - self.max_lines_visible + 1
             self.cx = min(len(self.lines[self.cy]), self.cx)
 
-    # --- DRAWING ---
+    # --- DRAWING (Con Coloreado Corregido) ---
     def draw_highlighted_line(self, text, x, y, target):
+        # Regex corregido para capturar identificadores, simbolos y strings
         parts = re.split(r'("[^"]*"|--.*|\W)', text)
         cur_x = x
         next_is_func = False
+
         for part in parts:
             if not part: continue
             col = self.theme["text"]
+
+            # 1. Strings / Comentarios
             if part.startswith('"') or part.startswith("'"):
                 col = self.theme["string"]
             elif part.startswith("--"):
                 col = self.theme["comment"]
+
+            # 2. Keywords / Function Name
             elif part in KEYWORDS:
                 col = self.theme["keyword"]
                 if part == "function": next_is_func = True
+
+            # Lógica para detectar nombre de funcion:
+            # Si el flag está activo, y la parte NO es un espacio vacío...
             elif next_is_func and part.strip():
+                # Si es una palabra válida, la pintamos
                 if part.isidentifier():
                     col = self.theme["func_name"]
-                    next_is_func = False
+                    next_is_func = False  # Ya pintamos el nombre, apagamos flag
+                # Si es un símbolo (ej: parentesis), apagamos flag
                 elif part.strip() != "":
                     next_is_func = False
+
+            # 3. Números
             elif part.isdigit():
                 col = self.theme["number"]
+
+            # 4. Símbolos
             elif part in ["+", "-", "*", "/", "=", "<", ">", "%", "(", ")", "[", "]", ",", "."]:
                 col = self.theme["symbol"]
 
@@ -456,12 +468,12 @@ class CodeEditor:
 
             # Selection Highlight
             if start and end:
-                sx, sy = start
+                sx, sy = start;
                 ex, ey = end
                 if sy < idx < ey:
                     pygame.draw.rect(target, sel_col, (self.gutter_w, y, self.hw.ED_WIDTH, self.line_h))
                 elif idx == sy == ey:
-                    px1 = self.gutter_w + 4 + (sx * 5)
+                    px1 = self.gutter_w + 4 + (sx * 5);
                     px2 = self.gutter_w + 4 + (ex * 5)
                     pygame.draw.rect(target, sel_col, (px1, y, px2 - px1, self.line_h))
                 elif idx == sy:
@@ -480,7 +492,7 @@ class CodeEditor:
             # Cursor
             if idx == self.cy:
                 cx_px = self.gutter_w + 4 + (self.cx * 5)
-                if (pygame.time.get_ticks() // 500) % 2 == 0:
+                if (pygame.time.get_ticks() //100) % 2 == 0:
                     pygame.draw.rect(target, self.hw.palette[self.theme["cursor"]], (cx_px, y, 4, 6))
 
         # Status Bar
@@ -489,7 +501,9 @@ class CodeEditor:
         self.hw.print_text(f"Ln {self.cy + 1}, Col {self.cx}", 2, by + 2, self.theme["bar_text"], True, target)
         self.hw.print_text(f"{len(self.get_code())} B", 200, by + 2, self.theme["bar_text"], True, target)
         if self.error_msg != "OK":
-            self.hw.print_text(self.error_msg[:30], 90, by + 2, self.theme["error"], True, target)
+            msg = self.error_msg
+            if len(msg) > 35: msg = msg[:32] + "..."
+            self.hw.print_text(msg, 90, by + 2, self.theme["error"], True, target)
 
         # IntelliSense Overlay
         if self.suggest_active:
