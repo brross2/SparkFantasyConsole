@@ -31,15 +31,17 @@ end
 ## 4. Condicionales
 
 ```
-if x < 10:
+if x < 10 then
     x = x + 1
+else
+    x = x - 1
 end
 ```
 
 ## 5. Bucles
 
 ```
-while x < 50:
+while x < 50 do
     x = x + 1
 end
 ```
@@ -56,6 +58,13 @@ end
 pset(x, y, color)
 spr(id, x, y)
 sfx(id)
+line(x0, y0, x1, y1, color)
+rect(x, y, w, h, color)
+btn(id)
+print("TEXT", x, y, color)
+cls()"
+sfx(id)
+log("msg")
 ```
 
 ## 8. Entry Points

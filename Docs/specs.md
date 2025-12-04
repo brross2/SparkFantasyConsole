@@ -6,7 +6,8 @@ Spark es una fantasy console diseñada para simular hardware retro con limitacio
 
 ### 2. Hardware Virtual
 
-* **Resolución:** 160x160 px
+* **Resolución de Editor:** 320x320 px
+* **Resolución de Juego:** 160x160 px
 * **Paleta:** 32 colores fijos
 * **Spritesheet:** 256 sprites de 8x8
 * **Mapa:** 128x128 tiles
@@ -42,5 +43,11 @@ Spark es una fantasy console diseñada para simular hardware retro con limitacio
 * `spr(id, x, y)` → dibuja sprite
 * `map(x, y)` → dibuja tilemap
 * `sfx(id)` → reproduce sonido
+* `line(x1,y1,x2,x2,c)` → dibuja una linea
+* `rect(x,y,w,h,c)` → dibuja un rectangulo
+* `btn(id)` → escucha el los eventos del boton
+* `print("TEXT", x, y, c)` → dibuja texto en la pantalla.
+* `cls()` → limpia la pantalla
+* `log("msg")` → imprime en consola un mensajes, errores, warnings
 
 ---
